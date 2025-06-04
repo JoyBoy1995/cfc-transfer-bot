@@ -7,5 +7,4 @@ env/
 venv/
 .venv/
 .env
-seen_submissions.json
 *.log

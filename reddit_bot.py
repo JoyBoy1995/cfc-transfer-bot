@@ -188,9 +188,9 @@ class ChelseaRedditBot:
 
         return success
 
-    def check_recent_posts(self, limit=25):
+    def check_recent_posts(self, limit=1):
         """Check recent posts for any missed Tier 1/2 posts"""
-        logger.info(f"🔍 Checking last {limit} posts for missed Tier 1/2 content...")
+        logger.info(f"🔍 Checking last 1 posts for missed Tier 1/2 content...")
 
         subreddit = self.reddit.subreddit('chelseafc')
         found_count = 0
