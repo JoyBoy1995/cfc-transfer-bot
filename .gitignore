@@ -8,3 +8,4 @@ venv/
 .venv/
 .env
 *.log
+.idea

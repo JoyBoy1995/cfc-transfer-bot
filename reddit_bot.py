@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Chelsea Reddit Transfer Bot
-Monitors r/chelseafc for Tier 1 and Tier 2 transfer posts and sends to Discord
+Multi-Club Reddit Transfer Bot
+Monitors multiple football subreddits for Tier 1 and Tier 2 transfer posts and sends to Discord
 """
 
 import praw
@@ -11,9 +11,8 @@ import time
 import os
 from datetime import datetime
 from dotenv import load_dotenv
-from typing import Set
+from typing import Set, Dict, List
 import logging
-
 
 # Load environment variables from .env file
 load_dotenv()
@@ -23,12 +22,12 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 
-class ChelseaRedditBot:
+class MultiClubRedditBot:
     def __init__(self):
         # Reddit API credentials from environment variables
         self.reddit_client_id = os.getenv('REDDIT_CLIENT_ID')
         self.reddit_client_secret = os.getenv('REDDIT_CLIENT_SECRET')
-        self.reddit_user_agent = os.getenv('REDDIT_USER_AGENT', 'discord_cfc_bot/1.0')
+        self.reddit_user_agent = os.getenv('REDDIT_USER_AGENT', 'multi_club_bot/1.0')
 
         # Discord webhook
         self.discord_webhook = os.getenv('DISCORD_WEBHOOK_URL')
@@ -37,12 +36,64 @@ class ChelseaRedditBot:
         if not all([self.reddit_client_id, self.reddit_client_secret, self.discord_webhook]):
             raise ValueError("Missing required environment variables. Check your .env file.")
 
-        # File to store seen submissions
-        self.seen_file = 'seen_submissions.json'
+        # File to store seen submissions (use persistent path for Railway)
+        self.seen_file = '/tmp/seen_submissions.json'
         self.seen_submissions: Set[str] = set()
 
-        # Target flairs
-        self.target_flairs = ['Tier 1', 'Tier 2']
+        # Target flairs - only high quality sources
+        self.target_flairs = ['Tier 1', 'Tier 2', 'Official Source']
+
+        # Club configurations
+        self.clubs = {
+            'chelseafc': {
+                'name': 'Chelsea FC',
+                'emoji': '🔵',
+                'color': 0x034694,  # Chelsea blue
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Chelsea-Logo.png'
+            },
+            'realmadrid': {
+                'name': 'Real Madrid',
+                'emoji': '⚪',
+                'color': 0xFFFFFF,  # White
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Real-Madrid-Logo.png'
+            },
+            'coys': {
+                'name': 'Tottenham Hotspur',
+                'emoji': '⚪',
+                'color': 0x132257,  # Navy blue
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/11/Tottenham-Logo.png'
+            },
+            'Gunners': {
+                'name': 'Arsenal FC',
+                'emoji': '🔴',
+                'color': 0xEF0107,  # Arsenal red
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Arsenal-Logo.png'
+            },
+            'LiverpoolFC': {
+                'name': 'Liverpool FC',
+                'emoji': '🔴',
+                'color': 0xC8102E,  # Liverpool red
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Liverpool-Logo.png'
+            },
+            'MCFC': {
+                'name': 'Manchester City',
+                'emoji': '🔵',
+                'color': 0x6CABDD,  # City blue
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Manchester-City-Logo.png'
+            },
+            'reddevils': {
+                'name': 'Manchester United',
+                'emoji': '🔴',
+                'color': 0xDA020E,  # United red
+                'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Manchester-United-Logo.png'
+            },
+            'soccer': {
+                'name': 'General Football',
+                'emoji': '⚽',
+                'color': 0x00FF00,  # Green for general
+                'logo': 'https://cdn-icons-png.flaticon.com/512/53/53283.png'
+            }
+        }
 
         # Initialize Reddit instance
         self.reddit = None
@@ -56,9 +107,9 @@ class ChelseaRedditBot:
                 user_agent=self.reddit_user_agent
             )
 
-            # Test connection
+            # Test connection with Chelsea subreddit
             test_subreddit = self.reddit.subreddit('chelseafc')
-            logger.info(f"✅ Connected to Reddit. r/chelseafc has {test_subreddit.subscribers:,} subscribers")
+            logger.info(f"✅ Connected to Reddit. Testing with r/chelseafc: {test_subreddit.subscribers:,} subscribers")
 
         except Exception as e:
             logger.error(f"❌ Failed to connect to Reddit: {e}")
@@ -81,19 +132,34 @@ class ChelseaRedditBot:
     def save_seen_submissions(self):
         """Save seen submissions to file"""
         seen_list = list(self.seen_submissions)
-        # Keep only the most recent 1000 to prevent file from growing too large
-        if len(seen_list) > 1000:
-            seen_list = seen_list[-1000:]
+        # Keep only the most recent 2000 to prevent file from growing too large
+        if len(seen_list) > 2000:
+            seen_list = seen_list[-2000:]
             self.seen_submissions = set(seen_list)
 
         with open(self.seen_file, 'w') as f:
             json.dump(seen_list, f, indent=2)
 
-    def send_to_discord(self, submission):
+    def is_transfer_related(self, title: str, text: str = '') -> bool:
+        """Check if post is transfer related"""
+        content = f"{title} {text}".lower()
+        transfer_keywords = [
+            'transfer', 'signing', 'signs', 'joins', 'agreement', 'deal',
+            'contract', 'move', 'bid', 'offer', 'target', 'rumour', 'rumor',
+            'exclusive', 'breaking', 'confirmed', 'announces', 'loan',
+            'release clause', 'medical', 'here we go', 'done deal',
+            'official', 'unveil', 'welcome', 'new signing'
+        ]
+
+        return any(keyword in content for keyword in transfer_keywords)
+
+    def send_to_discord(self, submission, club_key: str):
         """Send submission to Discord via webhook"""
+        club_info = self.clubs[club_key]
+
         # Determine tier and color
-        tier = submission.link_flair_text
-        color = 0x00FF00 if tier == "Tier 1" else 0xFFFF00  # Green for Tier 1, Yellow for Tier 2
+        tier = submission.link_flair_text or "News"
+        color = club_info['color']
 
         # Get submission details
         title = submission.title
@@ -102,9 +168,13 @@ class ChelseaRedditBot:
         author = str(submission.author) if submission.author else "Unknown"
         created_time = datetime.fromtimestamp(submission.created_utc)
 
+        # Truncate title if too long
+        if len(title) > 200:
+            title = title[:197] + "..."
+
         # Create embed
         embed = {
-            "title": f"🔵 {tier} Chelsea Transfer News",
+            "title": f"{club_info['emoji']} {tier} - {club_info['name']}",
             "description": title,
             "color": color,
             "fields": [
@@ -114,8 +184,8 @@ class ChelseaRedditBot:
                     "inline": True
                 },
                 {
-                    "name": "Reddit Post",
-                    "value": f"[View Discussion]({reddit_url})",
+                    "name": "Reddit Discussion",
+                    "value": f"[r/{club_key}]({reddit_url})",
                     "inline": True
                 },
                 {
@@ -127,16 +197,29 @@ class ChelseaRedditBot:
                     "name": "Tier",
                     "value": tier,
                     "inline": True
+                },
+                {
+                    "name": "Subreddit",
+                    "value": f"r/{club_key}",
+                    "inline": True
                 }
             ],
             "timestamp": created_time.isoformat(),
             "footer": {
-                "text": "r/chelseafc • Chelsea Transfer Bot"
+                "text": f"Multi-Club Transfer Bot • r/{club_key}"
             },
             "thumbnail": {
-                "url": "https://logos-world.net/wp-content/uploads/2020/06/Chelsea-Logo.png"
+                "url": club_info['logo']
             }
         }
+
+        # Add score field if this is from r/soccer
+        if club_key == 'soccer':
+            embed["fields"].append({
+                "name": "Score",
+                "value": f"↑ {submission.score}",
+                "inline": True
+            })
 
         payload = {
             "embeds": [embed]
@@ -151,7 +234,7 @@ class ChelseaRedditBot:
             )
 
             if response.status_code == 204:
-                logger.info(f"✅ Posted to Discord: {title[:50]}...")
+                logger.info(f"✅ Posted to Discord: [{club_info['name']}] {title[:50]}...")
                 return True
             else:
                 logger.error(f"❌ Discord webhook failed: {response.status_code}")
@@ -162,61 +245,104 @@ class ChelseaRedditBot:
             logger.error(f"❌ Error posting to Discord: {e}")
             return False
 
-    def process_submission(self, submission):
+    def process_submission(self, submission, club_key: str):
         """Process a single submission"""
         # Skip if already seen
         if submission.id in self.seen_submissions:
             return False
 
-        # Check if it has the target flair
-        if submission.link_flair_text not in self.target_flairs:
-            self.seen_submissions.add(submission.id)
-            return False
+        # For club-specific subreddits, ONLY check flair (strict filtering)
+        if club_key != 'soccer':
+            # Must have Tier 1, Tier 2, or Official Source flair
+            if submission.link_flair_text not in self.target_flairs:
+                self.seen_submissions.add(submission.id)
+                return False
+        else:
+            # For r/soccer, check transfer keywords AND require high score
+            if not self.is_transfer_related(submission.title, getattr(submission, 'selftext', '')):
+                self.seen_submissions.add(submission.id)
+                return False
+
+            # Only post r/soccer posts with high upvotes AND tier flair if available
+            if submission.score < 100:  # Increased threshold
+                self.seen_submissions.add(submission.id)
+                return False
+
+            # If r/soccer post has a flair, it must be a good one
+            if submission.link_flair_text and submission.link_flair_text not in self.target_flairs:
+                # Skip if it has a flair but it's not Tier 1/2/Official
+                if 'tier' in submission.link_flair_text.lower():
+                    self.seen_submissions.add(submission.id)
+                    return False
 
         # Log the submission
-        logger.info(f"📢 Found {submission.link_flair_text} post: {submission.title[:50]}...")
+        tier = submission.link_flair_text or "News"
+        logger.info(f"📢 Found {tier} post in r/{club_key}: {submission.title[:50]}...")
 
         # Send to Discord
-        success = self.send_to_discord(submission)
+        success = self.send_to_discord(submission, club_key)
 
         # Mark as seen regardless of Discord success
         self.seen_submissions.add(submission.id)
 
         # Save seen submissions periodically
-        if len(self.seen_submissions) % 10 == 0:
+        if len(self.seen_submissions) % 20 == 0:
             self.save_seen_submissions()
 
         return success
 
-    def check_recent_posts(self, limit=1):
+    def check_recent_posts(self, club_key: str, limit: int = 10):
         """Check recent posts for any missed Tier 1/2 posts"""
-        logger.info(f"🔍 Checking last 1 posts for missed Tier 1/2 content...")
-
-        subreddit = self.reddit.subreddit('chelseafc')
-        found_count = 0
+        logger.info(f"🔍 Checking last {limit} posts in r/{club_key}...")
 
         try:
-            for submission in subreddit.new(limit=limit):
-                if self.process_submission(submission):
-                    found_count += 1
-                    time.sleep(2)  # Small delay between Discord posts
+            subreddit = self.reddit.subreddit(club_key)
+            found_count = 0
 
-            logger.info(f"✅ Initial check complete. Posted {found_count} new items")
+            for submission in subreddit.new(limit=limit):
+                if self.process_submission(submission, club_key):
+                    found_count += 1
+                    time.sleep(1)  # Small delay between Discord posts
+
+            if found_count > 0:
+                logger.info(f"✅ Posted {found_count} items from r/{club_key}")
 
         except Exception as e:
-            logger.error(f"❌ Error during initial check: {e}")
+            logger.error(f"❌ Error checking r/{club_key}: {e}")
 
-    def monitor_subreddit(self):
-        """Monitor r/chelseafc for new Tier 1/2 posts"""
-        logger.info("🚀 Starting live monitoring of r/chelseafc...")
+    def monitor_subreddit(self, club_key: str):
+        """Monitor a single subreddit for new posts"""
+        logger.info(f"👀 Monitoring r/{club_key}...")
 
-        subreddit = self.reddit.subreddit('chelseafc')
+        try:
+            subreddit = self.reddit.subreddit(club_key)
+            for submission in subreddit.stream.submissions(skip_existing=True):
+                self.process_submission(submission, club_key)
+        except Exception as e:
+            logger.error(f"❌ Stream error for r/{club_key}: {e}")
+            raise
+
+    def monitor_all_subreddits(self):
+        """Monitor all configured subreddits"""
+        logger.info("🚀 Starting live monitoring of all subreddits...")
 
         while True:
             try:
-                # Stream new submissions
-                for submission in subreddit.stream.submissions(skip_existing=True):
-                    self.process_submission(submission)
+                # Create a multireddit string
+                subreddit_names = '+'.join(self.clubs.keys())
+                multireddit = self.reddit.subreddit(subreddit_names)
+
+                logger.info(f"📡 Monitoring: {subreddit_names}")
+
+                for submission in multireddit.stream.submissions(skip_existing=True):
+                    # Determine which subreddit this came from
+                    club_key = submission.subreddit.display_name.lower()
+
+                    # Skip if we don't have config for this subreddit
+                    if club_key not in self.clubs:
+                        continue
+
+                    self.process_submission(submission, club_key)
 
             except Exception as e:
                 logger.error(f"❌ Stream error: {e}")
@@ -233,7 +359,8 @@ class ChelseaRedditBot:
 
     def run(self):
         """Main run method"""
-        logger.info("🔵 Chelsea Reddit Transfer Bot Starting...")
+        logger.info("⚽ Multi-Club Reddit Transfer Bot Starting...")
+        logger.info(f"📋 Monitoring: {', '.join([f'r/{club}' for club in self.clubs.keys()])}")
 
         # Load seen submissions
         self.load_seen_submissions()
@@ -241,15 +368,17 @@ class ChelseaRedditBot:
         # Connect to Reddit
         self.connect_to_reddit()
 
-        # Check recent posts first
-        self.check_recent_posts()
+        # Check recent posts for each subreddit
+        for club_key in self.clubs.keys():
+            self.check_recent_posts(club_key, limit=5)  # Reduced limit for multiple subs
+            time.sleep(2)  # Delay between subreddits
 
         # Save seen submissions after initial check
         self.save_seen_submissions()
 
-        # Start monitoring
+        # Start monitoring all subreddits
         try:
-            self.monitor_subreddit()
+            self.monitor_all_subreddits()
         except KeyboardInterrupt:
             logger.info("👋 Bot stopped by user")
         finally:
@@ -260,7 +389,7 @@ class ChelseaRedditBot:
 def main():
     """Main function"""
     try:
-        bot = ChelseaRedditBot()
+        bot = MultiClubRedditBot()
         bot.run()
     except Exception as e:
         logger.error(f"❌ Bot failed to start: {e}")
