@@ -29,11 +29,12 @@ class MultiClubRedditBot:
         self.reddit_client_secret = os.getenv('REDDIT_CLIENT_SECRET')
         self.reddit_user_agent = os.getenv('REDDIT_USER_AGENT', 'multi_club_bot/1.0')
 
-        # Discord webhook
-        self.discord_webhook = os.getenv('DISCORD_WEBHOOK_URL')
+        # Discord webhooks - can be multiple separated by commas
+        discord_webhooks_env = os.getenv('DISCORD_WEBHOOK_URL', '')
+        self.discord_webhooks = [url.strip() for url in discord_webhooks_env.split(',') if url.strip()]
 
         # Validate required environment variables
-        if not all([self.reddit_client_id, self.reddit_client_secret, self.discord_webhook]):
+        if not all([self.reddit_client_id, self.reddit_client_secret]) or not self.discord_webhooks:
             raise ValueError("Missing required environment variables. Check your .env file.")
 
         # File to store seen submissions (use persistent path for Railway)
@@ -86,12 +87,6 @@ class MultiClubRedditBot:
                 'emoji': '🔴',
                 'color': 0xDA020E,  # United red
                 'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Manchester-United-Logo.png'
-            },
-            'soccer': {
-                'name': 'General Football',
-                'emoji': '⚽',
-                'color': 0x00FF00,  # Green for general
-                'logo': 'https://cdn-icons-png.flaticon.com/512/53/53283.png'
             }
         }
 
@@ -154,7 +149,7 @@ class MultiClubRedditBot:
         return any(keyword in content for keyword in transfer_keywords)
 
     def send_to_discord(self, submission, club_key: str):
-        """Send submission to Discord via webhook"""
+        """Send submission to Discord via webhook(s)"""
         club_info = self.clubs[club_key]
 
         # Determine tier and color
@@ -225,24 +220,31 @@ class MultiClubRedditBot:
             "embeds": [embed]
         }
 
-        try:
-            response = requests.post(
-                self.discord_webhook,
-                json=payload,
-                headers={'Content-Type': 'application/json'},
-                timeout=10
-            )
+        # Send to all configured webhooks
+        success_count = 0
+        for webhook_url in self.discord_webhooks:
+            try:
+                response = requests.post(
+                    webhook_url,
+                    json=payload,
+                    headers={'Content-Type': 'application/json'},
+                    timeout=10
+                )
 
-            if response.status_code == 204:
-                logger.info(f"✅ Posted to Discord: [{club_info['name']}] {title[:50]}...")
-                return True
-            else:
-                logger.error(f"❌ Discord webhook failed: {response.status_code}")
-                logger.error(f"Response: {response.text}")
-                return False
+                if response.status_code == 204:
+                    success_count += 1
+                else:
+                    logger.error(f"❌ Discord webhook failed: {response.status_code} for {webhook_url[:50]}...")
 
-        except requests.RequestException as e:
-            logger.error(f"❌ Error posting to Discord: {e}")
+            except requests.RequestException as e:
+                logger.error(f"❌ Error posting to Discord webhook {webhook_url[:50]}...: {e}")
+
+        if success_count > 0:
+            logger.info(
+                f"✅ Posted to {success_count}/{len(self.discord_webhooks)} Discord channels: [{club_info['name']}] {title[:50]}...")
+            return True
+        else:
+            logger.error(f"❌ Failed to post to any Discord channels")
             return False
 
     def process_submission(self, submission, club_key: str):
@@ -370,7 +372,7 @@ class MultiClubRedditBot:
 
         # Check recent posts for each subreddit
         for club_key in self.clubs.keys():
-            self.check_recent_posts(club_key, limit=5)  # Reduced limit for multiple subs
+            self.check_recent_posts(club_key, limit=1)  # Only check most recent post
             time.sleep(2)  # Delay between subreddits
 
         # Save seen submissions after initial check
