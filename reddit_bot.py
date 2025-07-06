@@ -64,19 +64,19 @@ class MultiClubRedditBot:
                 'color': 0x132257,  # Navy blue
                 'logo': 'https://logos-world.net/wp-content/uploads/2020/11/Tottenham-Logo.png'
             },
-            'Gunners': {
+            'gunners': {
                 'name': 'Arsenal FC',
                 'emoji': '🔴',
                 'color': 0xEF0107,  # Arsenal red
                 'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Arsenal-Logo.png'
             },
-            'LiverpoolFC': {
+            'liverpoolfc': {
                 'name': 'Liverpool FC',
                 'emoji': '🔴',
                 'color': 0xC8102E,  # Liverpool red
                 'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Liverpool-Logo.png'
             },
-            'MCFC': {
+            'mcfc': {
                 'name': 'Manchester City',
                 'emoji': '🔵',
                 'color': 0x6CABDD,  # City blue
@@ -87,6 +87,12 @@ class MultiClubRedditBot:
                 'emoji': '🔴',
                 'color': 0xDA020E,  # United red
                 'logo': 'https://logos-world.net/wp-content/uploads/2020/06/Manchester-United-Logo.png'
+            },
+            'soccer': {
+                'name': 'General Football',
+                'emoji': '⚽',
+                'color': 0x00FF00,  # Green for general
+                'logo': 'https://cdn-icons-png.flaticon.com/512/53/53283.png'
             }
         }
 
@@ -370,9 +376,22 @@ class MultiClubRedditBot:
         # Connect to Reddit
         self.connect_to_reddit()
 
-        # Check recent posts for each subreddit
+        # Check recent posts for each subreddit (skip Chelsea since it's most active)
+        broken_subreddits = ['gunners', 'liverpoolfc', 'mcfc']  # Previously broken due to case mismatch
+
         for club_key in self.clubs.keys():
-            self.check_recent_posts(club_key, limit=1)  # Only check most recent post
+            if club_key == 'chelseafc':
+                logger.info(f"⏭️ Skipping initial check for r/{club_key} (most active)")
+                continue
+
+            # Check more posts for previously broken subreddits
+            if club_key in broken_subreddits:
+                limit = 5
+                logger.info(f"🔍 Checking last {limit} posts from r/{club_key} (was broken, catching up)")
+            else:
+                limit = 1
+
+            self.check_recent_posts(club_key, limit=limit)
             time.sleep(2)  # Delay between subreddits
 
         # Save seen submissions after initial check

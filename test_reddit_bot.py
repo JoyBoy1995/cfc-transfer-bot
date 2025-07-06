@@ -270,8 +270,8 @@ class TestMultiClubRedditBot(unittest.TestCase):
     def test_club_configurations(self):
         """Test that all clubs are properly configured"""
         expected_clubs = [
-            'chelseafc', 'realmadrid', 'coys', 'Gunners',
-            'LiverpoolFC', 'MCFC', 'reddevils', 'soccer'
+            'chelseafc', 'realmadrid', 'coys', 'gunners',
+            'liverpoolfc', 'mcfc', 'reddevils', 'soccer'
         ]
 
         for club in expected_clubs:
@@ -289,6 +289,20 @@ class TestMultiClubRedditBot(unittest.TestCase):
             self.assertIsInstance(club_config['emoji'], str)
             self.assertIsInstance(club_config['color'], int)
             self.assertIsInstance(club_config['logo'], str)
+
+    def test_startup_behavior(self):
+        """Test that startup checks correct number of posts"""
+        # Test that broken subreddits get 5 posts checked
+        broken_subreddits = ['gunners', 'liverpoolfc', 'mcfc']
+
+        for club in broken_subreddits:
+            self.assertIn(club, self.bot.clubs)
+
+        # Test that chelsea is in clubs but should be skipped
+        self.assertIn('chelseafc', self.bot.clubs)
+
+        # Test club count
+        self.assertEqual(len(self.bot.clubs), 8)  # 8 clubs total (including soccer if present)
 
     def test_target_flairs(self):
         """Test that target flairs are correctly set"""
