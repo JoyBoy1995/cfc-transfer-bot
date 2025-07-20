@@ -1,11 +1,39 @@
+# Environment files
+.env
+.env.local
+.env.production
+.env.staging
+
+# Session files
+*.session
+session.session
+
+# Telegram message dumps
+telegram_messages_*.txt
+telegram_trans
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
 .Python
-env/
 venv/
+env/
 .venv/
-.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
 *.log
-.idea
+
+# Storage
+/tmp/seen_messages.json

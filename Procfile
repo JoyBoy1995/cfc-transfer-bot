@@ -1,1 +1,1 @@
-web: python reddit_bot.py
+web: python run_bot.py

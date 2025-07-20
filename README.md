@@ -26,7 +26,7 @@ Monitors r/chelseafc for Tier 1 and Tier 2 transfer posts and sends them to Disc
 ### 3. Environment Setup
 1. Create a `.env` file in your project directory
 2. Add your credentials to the `.env` file (see .env template above)
-
+sure
 ### 4. Installation
 ```bash
 # Create virtual environment
