@@ -13,9 +13,15 @@ class Settings:
     
     # Telegram settings
     TELEGRAM_API_ID = int(os.getenv('TELEGRAM_API_ID', 0))
-    TELEGRAM_API_HASH = os.getenv('TELEGRAM_API_HASH', '')
-    TELEGRAM_PHONE = os.getenv('TELEGRAM_PHONE', '')
-    TELEGRAM_CHANNEL = os.getenv('TELEGRAM_CHANNEL', 'transfer_news_football')
+    TELEGRAM_API_HASH = os.getenv('TELEGRAM_API_HASH', '').strip('"\'')
+    TELEGRAM_PHONE = os.getenv('TELEGRAM_PHONE', '').strip('"\'')
+    TELEGRAM_CHANNEL = os.getenv('TELEGRAM_CHANNEL', 'transfer_news_football').strip('"\'')
+    
+    def __init__(self):
+        print(f"DEBUG - API_ID: {self.TELEGRAM_API_ID}")
+        print(f"DEBUG - API_HASH: {self.TELEGRAM_API_HASH[:8]}...")
+        print(f"DEBUG - PHONE: {self.TELEGRAM_PHONE}")
+        print(f"DEBUG - WEBHOOK COUNT: {len(self.DISCORD_WEBHOOKS)}")
     
     # Discord settings
     DISCORD_WEBHOOKS = [
